@@ -17,8 +17,10 @@ The platform uses a high-performance **single-LLM-call orchestrator** designed t
 
 ```mermaid
 flowchart TD
-    A[User Query] --> B[Context Heuristic Rewriter]
-    B --> C[Zero-LLM Heuristic Router]
+    A[User Query] --> B{Heuristic Gatekeeper}
+    B -->|Needs Context| B1[LLM Context Rewrite]
+    B -->|Self-Contained| C[Zero-LLM Heuristic Router]
+    B1 --> C
     
     C -->|Greeting / Casual| D[Direct LLM / Instant Reply]
     C -->|Knowledge Search| E["Parallel Tool Dispatch (asyncio.gather)"]
@@ -41,10 +43,11 @@ flowchart TD
 ```
 
 ### Key Latency Optimizations:
-1. **Zero-LLM Intent Routing (0ms overhead)**: Rule-based heuristic classification eliminates pre-retrieval LLM routing calls, saving ~600–1000ms.
-2. **Parallel Multi-Source Retrieval (`asyncio.gather`)**: Dispatches Document Search, Web Search, and Wikipedia concurrently. Retrieval latency drops from the sum of all APIs ($T_1 + T_2 + T_3 \approx 2.2\text{s}$) to the single slowest call ($\max(T_1, T_2, T_3) \approx 1.0\text{s}$), achieving a **~50%+ latency reduction**.
-3. **Resilient Fault Tolerance (`return_exceptions=True`)**: If an external third-party search API fails or times out, the pipeline safely continues with the remaining valid sources without failing the user's request.
-4. **Single Synthesis LLM Call**: Aggregates all retrieved evidence into one structured prompt context (`SYNTHESIS_PROMPT`), generating grounded answers with citations in a single generation step.
+1. **Hybrid Query Rewriting (Contextual Resolution)**: Uses a blazing-fast Regex/Heuristic gatekeeper to decide if an LLM rewrite is needed. If a query is self-contained, it skips the LLM entirely (0ms latency). If it detects a pronoun or short follow-up (e.g., "Who is he?"), it triggers an LLM rewrite with a 6-turn sliding window to perfectly resolve context before searching.
+2. **Zero-LLM Intent Routing (0ms overhead)**: Rule-based heuristic classification eliminates pre-retrieval LLM routing calls, saving ~600–1000ms.
+3. **Parallel Multi-Source Retrieval (`asyncio.gather`)**: Dispatches Document Search, Web Search, and Wikipedia concurrently. Retrieval latency drops from the sum of all APIs ($T_1 + T_2 + T_3 \approx 2.2\text{s}$) to the single slowest call ($\max(T_1, T_2, T_3) \approx 1.0\text{s}$), achieving a **~50%+ latency reduction**.
+4. **Resilient Fault Tolerance (`return_exceptions=True`)**: If an external third-party search API fails or times out, the pipeline safely continues with the remaining valid sources without failing the user's request.
+5. **Single Synthesis LLM Call**: Aggregates all retrieved evidence into one structured prompt context (`SYNTHESIS_PROMPT`), generating grounded answers with citations in a single generation step.
 
 ---
 
