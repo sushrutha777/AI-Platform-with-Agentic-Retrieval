@@ -8,6 +8,7 @@ from app.context.service import context_service
 from app.prompts.templates import DIRECT_RESPONSE_PROMPT, SYNTHESIS_PROMPT
 from app.llm.gateway import gateway
 from app.core.logging import logger
+from app.tools.base import ToolResult
 
 class AgentOrchestrator:
     """Manages the end-to-end execution of a chat request."""
@@ -22,7 +23,7 @@ class AgentOrchestrator:
         
         # 1. Rewrite Query (using ContextService heuristics)
         yield {"type": "step", "label": "Analyzing context..."}
-        rewritten_query = context_service.rewrite_query(session_id, question)
+        rewritten_query = await context_service.rewrite_query(session_id, question)
         
         # 2. Route
         yield {"type": "step", "label": "Routing intent..."}
@@ -48,9 +49,9 @@ class AgentOrchestrator:
             
             # Aggregate results
             for res in results:
-                if isinstance(res, Exception):
+                if isinstance(res, BaseException):
                     logger.error(f"Tool execution failed: {res}")
-                elif res and res.sources:  # Only keep results that actually found something
+                elif isinstance(res, ToolResult) and res.sources:  # Only keep results that actually found something
                     valid_results.append(res)
                     
             if valid_results:
