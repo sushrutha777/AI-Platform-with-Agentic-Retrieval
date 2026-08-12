@@ -26,7 +26,7 @@ flowchart TD
     subgraph Parallel Tool Execution
         E --> F["Document Hybrid Search (Qdrant + BM25 + FlashRank)"]
         E --> G["Web Search (Tavily / DuckDuckGo)"]
-        E --> H["Wikipedia Encyclopedia API"]
+        E --> H["Wikipedia Search"]
     end
     
     F --> I[Context Aggregator & Fault Handler]
@@ -52,6 +52,7 @@ flowchart TD
 
 - **Dual-Provider Resilience (Gemini + Groq Fallback)**: Runs **Google Gemini 3.1 Flash Lite** as primary generation engine with automatic, sub-second fallback to **Groq Llama 3** if Google rate-limits or fails.
 - **Autonomous Agentic Routing**: A custom rule-and-LLM-based routing engine classifies intent, rewrites queries contextually, and executes parallel tool-calling workflows.
+- **Stateless Backend Session Rehydration**: The React frontend acts as the long-term memory database (via `localStorage` with a 15-day auto-cleanup policy), seamlessly rehydrating the backend `ContextService` memory on the fly. This enables fully stateless cloud deployments without requiring Redis or PostgreSQL for session state.
 - **Hybrid Search & Reranking**: Combines Dense Vector Search (Google Gemini Embeddings + Qdrant) and Sparse Keyword Search (BM25) via Reciprocal Rank Fusion (RRF), enhanced with FlashRank neural reranking.
 - **Pluggable Knowledge Ingestion Platform**: A modular ingestion pipeline (`ingestion_platform/`) with clean abstractions for Connectors (PDF, TXT) and Pipeline Stages (Cleaning, Semantic Chunking, Gemini Embedding, Indexing).
 - **Real-Time Token Streaming**: Low-latency Server-Sent Events (SSE) stream tokens and reasoning step updates directly to the frontend.
@@ -68,7 +69,7 @@ flowchart TD
 | **Backend API** | FastAPI, Pydantic v2, Uvicorn, Python 3.12 |
 | **Active LLM Engine** | **Primary**: Google Gemini (`gemini-3.1-flash-lite`)<br>**Fallback**: Groq (`llama3-8b` / `llama-3.3-70b`)<br>**Gateway**: LiteLLM |
 | **Search & Indexing** | Qdrant Vector Database, Gemini Embeddings, Rank-BM25, PyMuPDF, FlashRank Cross-Encoder |
-| **Web Search Tools** | Tavily Search API, DuckDuckGo Search, Wikipedia API |
+| **Web Search Tools** | Tavily Search API, DuckDuckGo Search, Wikipedia Search |
 | **DevOps & CI/CD** | Docker, Docker Compose, Google Cloud Build, Pytest |
 
 ---

@@ -53,6 +53,10 @@ class ChatService:
     ) -> AsyncGenerator[str, None]:
         """Stream SSE formatted events."""
         session_id = request.conversation_id or "default_session"
+        
+        if request.chat_history:
+            from app.context.service import context_service
+            context_service.restore_session(session_id, request.chat_history)
 
         try:
             async for event in self.orchestrator.stream_chat(

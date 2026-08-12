@@ -4,7 +4,27 @@ import ChatContainer from './components/ChatContainer';
 import { streamChat, checkHealth } from './services/api';
 
 export default function App() {
-  const [sessions, setSessions] = useState([]);
+  const [sessions, setSessions] = useState(() => {
+    try {
+      const saved = localStorage.getItem('agentic_rag_sessions_local');
+      if (!saved) return [];
+      
+      const parsed = JSON.parse(saved);
+      const fifteenDaysMs = 15 * 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      
+      // Auto-delete sessions older than 15 days
+      const filtered = parsed.filter((session) => {
+        if (!session.createdAt) return true; // fallback for missing dates
+        const sessionAge = now - new Date(session.createdAt).getTime();
+        return sessionAge <= fifteenDaysMs;
+      });
+      
+      return filtered;
+    } catch {
+      return [];
+    }
+  });
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -34,16 +54,7 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Load local sessions
-  useEffect(() => {
-    const storageKey = `agentic_rag_sessions_local`;
-    try {
-      const saved = localStorage.getItem(storageKey);
-      setSessions(saved ? JSON.parse(saved) : []);
-    } catch {
-      setSessions([]);
-    }
-  }, []);
+
 
   // Sync sessions to localStorage when updated
   useEffect(() => {

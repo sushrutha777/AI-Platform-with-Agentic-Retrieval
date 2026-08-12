@@ -23,6 +23,19 @@ class ContextService:
         session.turns.append(Turn(role=role, content=content))
         session.last_activity = datetime.now()
         
+    def restore_session(self, session_id: str, history: List[Dict[str, str]]) -> None:
+        """Rehydrate a session from external storage (e.g., browser history)."""
+        session = self._get_or_create(session_id)
+        # Only restore if backend memory is empty
+        if not session.turns and history:
+            logger.info(f"Rehydrating session {session_id} from frontend history ({len(history)} turns)")
+            for msg in history:
+                role = msg.get("role")
+                content = msg.get("content")
+                if role and content:
+                    session.turns.append(Turn(role=role, content=content))
+        session.last_activity = datetime.now()
+        
     def get_context_window(self, session_id: str, max_turns: int = 10) -> List[Dict[str, str]]:
         """Get the recent chat history formatted for LLMs."""
         session = self._get_or_create(session_id)
@@ -41,9 +54,9 @@ class ContextService:
             lines.append(f"{role}: {msg['content']}")
         return "\n".join(lines)
         
-    def rewrite_query(self, session_id: str, question: str) -> str:
+    async def rewrite_query(self, session_id: str, question: str) -> str:
         """
-        Contextual query rewriter. Resolves pronouns and references against recent history.
+        Contextual query rewriter. Uses LLM to resolve pronouns and references against recent history.
         """
         session = self._get_or_create(session_id)
         session.last_activity = datetime.now()
@@ -54,34 +67,39 @@ class ContextService:
         q_clean = question.strip()
         q_lower = q_clean.lower()
         
-        # Check for pronoun references or follow-up indicators
+        # Check for pronoun references or follow-up indicators to trigger LLM
         pronoun_pattern = r"\b(he|she|it|they|his|her|its|their|this|that|these|those)\b"
-        followup_phrases = ["tell me more", "explain more", "give an example", "why?", "how so?", "elaborate", "continue", "what about"]
+        followup_phrases = ["tell me more", "explain", "give an example", "why", "how so", "elaborate", "continue", "what about", "who", "what", "where", "when", "how", "which"]
         
         has_pronoun = bool(re.search(pronoun_pattern, q_lower))
-        is_followup = any(q_lower.startswith(phrase) or q_lower == phrase.rstrip("?") for phrase in followup_phrases)
+        is_followup = any(q_lower.startswith(phrase) for phrase in followup_phrases)
+        is_short = len(q_clean.split()) <= 8
         
-        if not has_pronoun and not is_followup:
+        if not (has_pronoun or (is_followup and is_short)):
             return question
             
-        # Find the last user question as the topic anchor
-        last_user_turns = [t.content for t in session.turns if t.role == "user"]
-        if not last_user_turns:
-            return question
-            
-        last_topic = last_user_turns[-1].strip()
+        history_text = self.format_history_text(session_id, max_turns=6)
         
-        # Build contextual standalone question
-        if is_followup and len(q_clean.split()) <= 4:
-            rewritten = f"{q_clean} regarding {last_topic}"
-            logger.info(f"ContextService resolved follow-up: '{question}' -> '{rewritten}'")
-            return rewritten
-            
-        if has_pronoun:
-            # If the user asks something like "When was he born?" or "What are its benefits?"
-            rewritten = f"{q_clean} (Context: in reference to '{last_topic}')"
-            logger.info(f"ContextService resolved pronouns: '{question}' -> '{rewritten}'")
-            return rewritten
+        from app.llm.gateway import gateway
+        prompt = f"""Given the following conversation history, rewrite the user's latest question into a standalone, fully contextualized query.
+If the question is already clear on its own, return it unchanged.
+Do NOT answer the question, just rewrite it. Do not include quotes or prefixes.
+
+Conversation History:
+{history_text}
+
+Latest User Question: {q_clean}
+
+Standalone Query:"""
+
+        try:
+            rewritten = await gateway.complete([{"role": "user", "content": prompt}])
+            rewritten = rewritten.strip(' "\'')
+            if rewritten and rewritten.lower() != q_lower:
+                logger.info(f"ContextService LLM resolved: '{question}' -> '{rewritten}'")
+                return rewritten
+        except Exception as e:
+            logger.warning(f"Failed to contextualize query: {e}")
             
         return question
 
