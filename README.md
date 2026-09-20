@@ -135,11 +135,12 @@ Retrieved Qdrant, BM25, web, and Wikipedia content remains part of the existing 
     LANGSMITH_API_KEY=lsv2_pt_your_api_key_here
     LANGSMITH_PROJECT="Agentic RAG"
 
-    # Google Cloud Model Armor (uses Cloud ADC/service-account auth)
+    # Google Cloud Model Armor (uses ADC/service-account authentication)
+    # Configure these values for your Google Cloud environment.
     MODEL_ARMOR_ENABLED=true
-    MODEL_ARMOR_PROJECT_ID=agentic-rag-504707
-    MODEL_ARMOR_LOCATION=us-central1
-    MODEL_ARMOR_TEMPLATE_ID=my-rag-guardrail-template
+    MODEL_ARMOR_PROJECT_ID=your_model_armor_project_id
+    MODEL_ARMOR_LOCATION=your_model_armor_region
+    MODEL_ARMOR_TEMPLATE_ID=your_model_armor_template_id
     MODEL_ARMOR_TIMEOUT_SECONDS=5
     ```
 
