@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     # Voice Input
     GCP_STT_ENABLED: bool = True
 
+    # Guardrails (Google Cloud Model Armor)
+    MODEL_ARMOR_ENABLED: bool = False
+    MODEL_ARMOR_PROJECT_ID: Optional[str] = None
+    MODEL_ARMOR_LOCATION: str = "us-central1"
+    MODEL_ARMOR_TEMPLATE_ID: Optional[str] = None
+    MODEL_ARMOR_TIMEOUT_SECONDS: float = 5.0
+
     # Memory
     SESSION_TIMEOUT_MINUTES: int = 30
 

@@ -31,6 +31,34 @@ This guide details how to deploy the **Enterprise AI Platform with Agentic Retri
 
 ---
 
+## Application request-boundary architecture
+
+```text
+React
+  ↓
+FastAPI
+  ↓
+Model Armor: user-prompt sanitization
+  ↓
+Existing heuristic gatekeeper and zero-LLM router
+  ↓
+Parallel Qdrant/BM25/web/Wikipedia retrieval
+  ↓
+RRF and FlashRank reranking
+  ↓
+Single final LiteLLM call
+  ↓
+Gemini primary or Groq fallback
+  ↓
+Model Armor: model-response sanitization
+  ↓
+FastAPI / React
+```
+
+Model Armor is applied at the application boundary. It is not placed between Gemini and Groq, and it does not add another LLM call or screen each retrieved result individually.
+
+---
+
 ## Prerequisites
 
 1. **Google Cloud SDK (`gcloud`)** installed:
@@ -43,6 +71,41 @@ This guide details how to deploy the **Enterprise AI Platform with Agentic Retri
    gcloud auth login
    gcloud auth configure-docker
    ```
+
+---
+
+## Model Armor configuration
+
+The application uses the existing Model Armor template configured through runtime environment variables. It does not create or update templates. Enable the API in the project that hosts the template:
+
+```bash
+gcloud services enable modelarmor.googleapis.com --project=agentic-rag-504707
+```
+
+The Cloud Run service account is not specified in this repository's deployment scripts, so resolve the identity from the deployed service before granting access:
+
+```bash
+SERVICE_ACCOUNT=$(gcloud run services describe SERVICE_NAME \
+  --region=SERVICE_REGION \
+  --project=RUN_PROJECT_ID \
+  --format='value(spec.template.spec.serviceAccountName)')
+
+gcloud projects add-iam-policy-binding agentic-rag-504707 \
+  --member="serviceAccount:${SERVICE_ACCOUNT}" \
+  --role="roles/modelarmor.user"
+```
+
+`roles/modelarmor.user` is the least-privilege predefined role for an application that uses existing templates for user-prompt and model-response sanitization. If the Cloud Run service runs in another project, grant this role in the template-hosting project (`agentic-rag-504707`).
+
+Set these non-secret variables on Cloud Run; no Model Armor key or service-account JSON file is required:
+
+```text
+MODEL_ARMOR_ENABLED=true
+MODEL_ARMOR_PROJECT_ID=agentic-rag-504707
+MODEL_ARMOR_LOCATION=us-central1
+MODEL_ARMOR_TEMPLATE_ID=my-rag-guardrail-template
+MODEL_ARMOR_TIMEOUT_SECONDS=5
+```
 
 ---
 
@@ -62,7 +125,7 @@ chmod +x ./deploy/deploy-gcp.sh
 ```
 
 The script performs the following tasks:
-1. Enables `run.googleapis.com`, `artifactregistry.googleapis.com`, and `cloudbuild.googleapis.com`.
+1. Enables `run.googleapis.com`, `artifactregistry.googleapis.com`, `cloudbuild.googleapis.com`, and `modelarmor.googleapis.com`.
 2. Builds the unified production container (React + FastAPI) using Google Cloud Build.
 3. Deploys the container to Cloud Run with 2 vCPUs, 2 GB RAM, and auto-scaling.
 4. Outputs the live HTTPS application URL.
@@ -82,7 +145,8 @@ gcloud services enable \
     run.googleapis.com \
     artifactregistry.googleapis.com \
     cloudbuild.googleapis.com \
-    secretmanager.googleapis.com
+    secretmanager.googleapis.com \
+    modelarmor.googleapis.com
 ```
 
 ### Step 2: Store Secrets in Secret Manager
@@ -125,7 +189,7 @@ gcloud run deploy agentic-rag-service \
     --min-instances=0 \
     --max-instances=10 \
     --set-secrets="GOOGLE_API_KEY=GOOGLE_API_KEY:latest,SECRET_KEY=SECRET_KEY:latest,TAVILY_API_KEY=TAVILY_API_KEY:latest" \
-    --set-env-vars="ENVIRONMENT=production,LLM_MODEL=gemini-2.0-flash,EMBEDDING_MODEL=models/text-embedding-004"
+    --set-env-vars="ENVIRONMENT=production,LLM_MODEL=gemini-2.0-flash,EMBEDDING_MODEL=models/text-embedding-004,MODEL_ARMOR_ENABLED=true,MODEL_ARMOR_PROJECT_ID=agentic-rag-504707,MODEL_ARMOR_LOCATION=us-central1,MODEL_ARMOR_TEMPLATE_ID=my-rag-guardrail-template,MODEL_ARMOR_TIMEOUT_SECONDS=5"
 ```
 
 ---

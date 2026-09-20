@@ -2,6 +2,7 @@
 
 import time
 import json
+import asyncio
 from typing import AsyncGenerator
 from app.schemas.chat import ChatRequest
 from app.agents.orchestrator import AgentOrchestrator
@@ -16,6 +17,16 @@ from app.reranker.flashrank_reranker import FlashRankReranker
 from app.reranker.null_reranker import NullReranker
 from app.core.config import settings
 from app.core.logging import logger
+from app.guardrails.model_armor import GuardrailResult, guardrail
+
+
+INPUT_BLOCKED_MESSAGE = (
+    "Your request could not be processed because it did not pass the application's security policy. "
+    "Please try to rephrase your request."
+)
+INPUT_SCAN_ERROR_MESSAGE = (
+    "Your request could not be processed because the application's security service is unavailable."
+)
 
 
 class ChatService:
@@ -52,7 +63,35 @@ class ChatService:
         request: ChatRequest,
     ) -> AsyncGenerator[str, None]:
         """Stream SSE formatted events."""
+        start_time = time.time()
         session_id = request.conversation_id or "default_session"
+
+        # Model Armor must see the raw latest user message before session
+        # restoration, contextual rewriting, routing, or retrieval begins.
+        try:
+            prompt_check = await asyncio.to_thread(
+                guardrail.sanitize_user_prompt,
+                request.question,
+            )
+        except Exception as exc:
+            logger.error(
+                "MODEL_ARMOR_ERROR stage=input reason=unexpected_guardrail_exception error_type=%s",
+                type(exc).__name__,
+            )
+            prompt_check = GuardrailResult(
+                allowed=False,
+                reason="api_unavailable",
+                error=True,
+            )
+
+        if not prompt_check.allowed:
+            blocked_message = (
+                INPUT_SCAN_ERROR_MESSAGE if prompt_check.error else INPUT_BLOCKED_MESSAGE
+            )
+            yield f"event: metadata\ndata: {json.dumps({'type': 'metadata', 'intent': 'blocked', 'tool_used': 'none', 'source_type': 'guardrail', 'sources': []})}\n\n"
+            yield f"event: token\ndata: {json.dumps({'type': 'token', 'token': blocked_message})}\n\n"
+            yield f"event: done\ndata: {json.dumps({'type': 'done', 'full_answer': blocked_message, 'tool_used': 'none', 'source_type': 'guardrail', 'latency_seconds': round(time.time() - start_time, 2)})}\n\n"
+            return
         
         if request.chat_history:
             from app.context.service import context_service

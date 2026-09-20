@@ -17,7 +17,8 @@ The platform uses a high-performance **single-LLM-call orchestrator** designed t
 
 ```mermaid
 flowchart TD
-    A[User Query] --> B{Heuristic Gatekeeper}
+    A[User Query] --> MAI["Model Armor: Input Sanitization"]
+    MAI --> B{Heuristic Gatekeeper}
     B -->|Needs Context| B1[LLM Context Rewrite]
     B -->|Self-Contained| C[Zero-LLM Heuristic Router]
     B1 --> C
@@ -37,8 +38,9 @@ flowchart TD
     
     I --> J["Synthesis Prompt Generation (Context + History + Query)"]
     J --> K["Single LLM Call (Gemini 3.1 Flash Lite / Groq Failover)"]
-    D --> L[FastAPI SSE Stream Engine]
-    K --> L
+    D --> MAO["Model Armor: Output Sanitization"]
+    K --> MAO
+    MAO --> L[FastAPI SSE Stream Engine]
     L --> M[React Frontend Client]
 ```
 
@@ -48,6 +50,12 @@ flowchart TD
 3. **Parallel Multi-Source Retrieval (`asyncio.gather`)**: Dispatches Document Search, Web Search, and Wikipedia concurrently. Retrieval latency drops from the sum of all APIs ($T_1 + T_2 + T_3 \approx 2.2\text{s}$) to the single slowest call ($\max(T_1, T_2, T_3) \approx 1.0\text{s}$), achieving a **~50%+ latency reduction**.
 4. **Resilient Fault Tolerance (`return_exceptions=True`)**: If an external third-party search API fails or times out, the pipeline safely continues with the remaining valid sources without failing the user's request.
 5. **Single Synthesis LLM Call**: Aggregates all retrieved evidence into one structured prompt context (`SYNTHESIS_PROMPT`), generating grounded answers with citations in a single generation step.
+
+### Model Armor request-boundary guardrails
+
+When enabled, the existing flow adds one Model Armor user-prompt scan before session/query processing and one Model Armor model-response scan after the completed synthesis. The output scan buffers the existing SSE chunks until the verdict is available, so partially scanned model output is never sent to the browser. Model Armor does not sit between Gemini and Groq and does not add an LLM call.
+
+Retrieved Qdrant, BM25, web, and Wikipedia content remains part of the existing aggregated context and is not screened with a separate call for every result. This preserves parallel retrieval and latency; the final prompt must continue to treat retrieved content as untrusted evidence rather than instructions.
 
 ---
 
@@ -126,6 +134,13 @@ flowchart TD
     LANGSMITH_ENDPOINT=https://api.smith.langchain.com
     LANGSMITH_API_KEY=lsv2_pt_your_api_key_here
     LANGSMITH_PROJECT="Agentic RAG"
+
+    # Google Cloud Model Armor (uses Cloud ADC/service-account auth)
+    MODEL_ARMOR_ENABLED=true
+    MODEL_ARMOR_PROJECT_ID=agentic-rag-504707
+    MODEL_ARMOR_LOCATION=us-central1
+    MODEL_ARMOR_TEMPLATE_ID=my-rag-guardrail-template
+    MODEL_ARMOR_TIMEOUT_SECONDS=5
     ```
 
 3. Launch all services (starts backend API and frontend):
