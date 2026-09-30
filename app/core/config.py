@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     # AI & Embeddings (LiteLLM)
     LLM_PROVIDER: str = "gemini"
     LLM_MODEL: str = "gemini/gemini-3.1-flash-lite"
+    FALLBACK_LLM_MODEL: str = "groq/llama-3.3-70b-versatile"
     LITELLM_API_BASE: Optional[str] = None
     GOOGLE_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None

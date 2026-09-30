@@ -7,14 +7,9 @@ from app.agents.router import AgentRouter
 from app.context.service import context_service
 from app.prompts.templates import DIRECT_RESPONSE_PROMPT, SYNTHESIS_PROMPT
 from app.llm.gateway import gateway
-from app.guardrails.model_armor import guardrail
 from app.core.logging import logger
 from app.tools.base import ToolResult
 
-
-OUTPUT_BLOCKED_MESSAGE = (
-    "I'm sorry, but the generated response could not be delivered because it did not pass the application's security policy."
-)
 
 class AgentOrchestrator:
     """Manages the end-to-end execution of a chat request."""
@@ -82,13 +77,15 @@ class AgentOrchestrator:
         if decision.intent == "greeting":
             fast_replies = "Hello! How can I help you today?"
             full_answer = fast_replies
-            answer_chunks = [word + " " for word in fast_replies.split(" ")]
+            for word in fast_replies.split(" "):
+                yield {"type": "token", "token": word + " "}
         elif decision.intent == "farewell":
             fast_replies = "Goodbye! Feel free to reach out if you have any more questions."
             full_answer = fast_replies
-            answer_chunks = [word + " " for word in fast_replies.split(" ")]
+            for word in fast_replies.split(" "):
+                yield {"type": "token", "token": word + " "}
         else:
-            # 4. Synthesize with LLM
+            # 4. Synthesize with LLM — stream tokens directly to client
             yield {"type": "step", "label": "Synthesizing answer..."}
             
             history = context_service.format_history_text(session_id)
@@ -100,48 +97,30 @@ class AgentOrchestrator:
                 
             messages = [{"role": "user", "content": prompt}]
             
-            # Stream LLM tokens
+            # Stream LLM tokens directly to SSE — no output buffering.
+            # Input Model Armor has already screened the user query in
+            # ChatService.stream_chat before this point.
             full_answer = ""
-            answer_chunks = []
+            llm_start_time = time.time()
+            first_token_time = None
             async for token in gateway.stream(messages):
+                if first_token_time is None:
+                    first_token_time = time.time()
+                    ttft = round(first_token_time - llm_start_time, 3)
+                    logger.info(
+                        "LLM_STREAMING ttft_seconds=%.3f", ttft
+                    )
                 full_answer += token
-                answer_chunks.append(token)
+                yield {"type": "token", "token": token}
 
-        # 5. Guardrail: sanitize the complete response before any token is
-        # emitted.  Model Armor's current API returns a verdict, not a
-        # redacted response body, so a blocked/error result is replaced with
-        # a safe application message.
-        try:
-            response_check = await asyncio.to_thread(
-                guardrail.sanitize_model_response,
-                full_answer,
+            llm_total_time = round(time.time() - llm_start_time, 3)
+            logger.info(
+                "LLM_STREAMING total_generation_seconds=%.3f", llm_total_time
             )
-        except Exception as exc:
-            logger.error(
-                "MODEL_ARMOR_ERROR stage=output reason=unexpected_guardrail_exception error_type=%s",
-                type(exc).__name__,
-            )
-            response_check = None
-
-        if response_check is None or not response_check.allowed:
-            full_answer = OUTPUT_BLOCKED_MESSAGE
-            answer_chunks = [full_answer]
-        elif response_check.sanitized_text and response_check.sanitized_text != full_answer:
-            # Keep this future-proof for a client/API version that returns a
-            # transformed body, while the current API still returns the
-            # original text for an allowed verdict.
-            full_answer = response_check.sanitized_text
-            answer_chunks = [full_answer]
 
         # Update context
         context_service.add_turn(session_id, "user", question)
         context_service.add_turn(session_id, "assistant", full_answer)
-
-        # Replay the buffered chunks only after output sanitization succeeds.
-        # This preserves the SSE event contract without leaking partial unsafe
-        # output to the client.
-        for token in answer_chunks:
-            yield {"type": "token", "token": token}
         
         latency_seconds = round(time.time() - start_time, 2)
         

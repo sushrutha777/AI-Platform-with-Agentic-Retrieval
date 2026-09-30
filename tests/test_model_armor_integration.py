@@ -1,4 +1,4 @@
-"""Request-boundary tests for Model Armor input and output enforcement."""
+"""Request-boundary tests for Model Armor input enforcement and direct token streaming."""
 
 import asyncio
 from types import SimpleNamespace
@@ -67,19 +67,22 @@ def test_blocked_input_stops_rag_before_orchestrator():
 
 
 async def _fake_model_stream(*args, **kwargs):
-    yield "Safe answer"
+    yield "Token 1 "
+    yield "Token 2"
 
 
-def _run_orchestrator_with_output(result: GuardrailResult):
+def test_orchestrator_streams_tokens_directly_without_output_guardrail():
+    """Verify LLM tokens stream progressively without output guardrail buffering."""
     orchestrator = AgentOrchestrator(ToolRegistry())
-    armor = MagicMock()
-    armor.sanitize_model_response.return_value = result
+
+    # Ensure output guardrail does not exist on orchestrator module
+    import app.agents.orchestrator as orch_module
+    assert not hasattr(orch_module, "guardrail")
 
     async def rewrite_query(*args, **kwargs):
         return "What is the return policy?"
 
     with (
-        patch("app.agents.orchestrator.guardrail", armor),
         patch("app.agents.orchestrator.gateway.stream", new=_fake_model_stream),
         patch("app.agents.orchestrator.context_service.rewrite_query", new=rewrite_query),
         patch(
@@ -93,24 +96,8 @@ def _run_orchestrator_with_output(result: GuardrailResult):
                 session_id="model-armor-test",
             )
         )
-    return events, armor
 
-
-def test_allowed_model_response_is_returned_after_scan():
-    events, armor = _run_orchestrator_with_output(
-        GuardrailResult(allowed=True, sanitized_text="Safe answer")
-    )
-
-    assert armor.sanitize_model_response.call_count == 1
-    assert any(event.get("type") == "token" and event["token"] == "Safe answer" for event in events)
-    assert events[-1]["full_answer"] == "Safe answer"
-
-
-def test_blocked_model_response_never_reaches_client():
-    events, armor = _run_orchestrator_with_output(
-        GuardrailResult(allowed=False, reason="policy_violation")
-    )
-
-    assert armor.sanitize_model_response.call_count == 1
-    assert all(event.get("token") != "Safe answer" for event in events)
-    assert "security policy" in events[-1]["full_answer"]
+    tokens = [event["token"] for event in events if event.get("type") == "token"]
+    assert tokens == ["Token 1 ", "Token 2"]
+    assert events[-1]["type"] == "done"
+    assert events[-1]["full_answer"] == "Token 1 Token 2"

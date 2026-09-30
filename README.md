@@ -38,9 +38,8 @@ flowchart TD
     
     I --> J["Synthesis Prompt Generation (Context + History + Query)"]
     J --> K["Single LLM Call (Gemini 3.1 Flash Lite / Groq Failover)"]
-    D --> MAO["Model Armor: Output Sanitization"]
-    K --> MAO
-    MAO --> L[FastAPI SSE Stream Engine]
+    D --> L[FastAPI SSE Stream Engine]
+    K -->|"stream=True"| L
     L --> M[React Frontend Client]
 ```
 
@@ -51,9 +50,11 @@ flowchart TD
 4. **Resilient Fault Tolerance (`return_exceptions=True`)**: If an external third-party search API fails or times out, the pipeline safely continues with the remaining valid sources without failing the user's request.
 5. **Single Synthesis LLM Call**: Aggregates all retrieved evidence into one structured prompt context (`SYNTHESIS_PROMPT`), generating grounded answers with citations in a single generation step.
 
-### Model Armor request-boundary guardrails
+### Model Armor input guardrail
 
-When enabled, the existing flow adds one Model Armor user-prompt scan before session/query processing and one Model Armor model-response scan after the completed synthesis. The output scan buffers the existing SSE chunks until the verdict is available, so partially scanned model output is never sent to the browser. Model Armor does not sit between Gemini and Groq and does not add an LLM call.
+When enabled, the flow adds one Model Armor user-prompt scan before session restoration, contextual rewriting, routing, or retrieval begins. If the scan blocks the input, the request is rejected immediately and never reaches the LLM or retrieval pipeline.
+
+There is **no output Model Armor guardrail**. The LLM response is streamed directly from the final synthesis call through FastAPI SSE to the React frontend, delivering tokens progressively as they are generated. This eliminates the perceived latency that would result from buffering the complete response for an output scan.
 
 Retrieved Qdrant, BM25, web, and Wikipedia content remains part of the existing aggregated context and is not screened with a separate call for every result. This preserves parallel retrieval and latency; the final prompt must continue to treat retrieved content as untrusted evidence rather than instructions.
 
