@@ -1,42 +1,56 @@
 # Enterprise AI Platform with Agentic Retrieval
 
-Full-stack agentic RAG application with a FastAPI backend, React frontend, LangGraph orchestration, hybrid document retrieval, web/Wikipedia tools, streaming responses, and a modular document-ingestion pipeline.
+Production-oriented, full-stack Retrieval-Augmented Generation (RAG) platform with a FastAPI backend, React frontend, LangGraph orchestration, hybrid document retrieval, external search tools, streaming responses, and a modular knowledge-ingestion pipeline.
+
+The platform is designed around a practical hybrid architecture: deterministic routing handles fast, predictable decisions while LLMs are used for contextual rewriting and grounded answer generation.
+
+## At a glance
+
+- **Backend:** FastAPI, Python 3.12, LangGraph, SSE streaming
+- **Retrieval:** Qdrant dense search, BM25 sparse search, RRF fusion, FlashRank reranking
+- **Models:** Gemini primary provider with Groq fallback through LiteLLM
+- **Tools:** Local document search, web search, and Wikipedia search
+- **Frontend:** React and Vite chat interface with citations and conversation history
+- **Operations:** Docker, Cloud Run, Cloud Build, Model Armor, and LangSmith tracing
 
 ## Current architecture
 
-The request flow is:
+![Current LangGraph architecture](architecture-diagram-dark.svg)
 
-~~~text
-User query
-  -> Model Armor input scan
-  -> conversation restoration
-  -> LangGraph context resolver
-  -> heuristic intent router
-  -> direct response OR parallel retrieval
-  -> context aggregation
-  -> one synthesis LLM call
-  -> SSE stream to React
-~~~
+The request lifecycle is:
 
-The graph in [app/graph/](app/graph/) contains five stages:
+1. The raw user message is checked by Google Cloud Model Armor when enabled.
+2. Conversation history is restored for the active session.
+3. The LangGraph context resolver decides whether contextual rewriting is necessary.
+4. The heuristic router selects a direct response or one or more retrieval tools.
+5. Selected tools execute concurrently and return evidence plus source metadata.
+6. The graph aggregates valid results and generates a grounded response.
+7. FastAPI streams progress, metadata, citations, metrics, tokens, and completion events to React using SSE.
 
-1. 'context_resolver' resolves follow-up questions using conversation history.
-2. 'router' performs zero-LLM intent classification.
-3. 'parallel_retrieval' runs the selected tools concurrently with fault isolation.
-4. 'context_aggregator' combines tool output and source metadata.
-5. 'generate' streams the final response through the LLM gateway.
+The graph in [app/graph/](app/graph/) contains five executable nodes:
 
-The request-facing orchestration is implemented in [app/services/chat_service.py](app/services/chat_service.py), and the HTTP route is [app/api/v1/chat.py](app/api/v1/chat.py).
+1. <code>context_resolver</code> — resolves follow-up questions when conversation context is required.
+2. <code>router</code> — performs fast, zero-LLM intent and tool selection.
+3. <code>parallel_retrieval</code> — runs selected tools with fault isolation.
+4. <code>context_aggregator</code> — combines evidence and citation metadata.
+5. <code>generate</code> — handles fast-path replies or streams the final LLM response.
+
+The request boundary is implemented in [app/services/chat_service.py](app/services/chat_service.py), and the HTTP endpoint is [app/api/v1/chat.py](app/api/v1/chat.py).
 
 ## Query routing
 
-- Greetings and farewells are answered immediately without retrieval.
-- Casual questions use a direct LLM prompt.
-- Knowledge questions are routed to local document search, web search, Wikipedia, or a combination.
-- Temporal terms such as 'today', 'latest', 'news', and 'price' select web search.
-- Encyclopedic terms such as 'who is', 'history', and 'capital of' select Wikipedia and web search.
-- Document terms such as 'policy', 'PDF', 'manual', and 'according to' select local document search.
-- Unclassified knowledge queries use document and web search together.
+The router is intentionally deterministic for low latency and predictable tool selection. It does not invoke all tools for every request.
+
+| Query category | Typical signals | Selected path |
+| --- | --- | --- |
+| Greeting or farewell | <code>hello</code>, <code>hi</code>, <code>goodbye</code> | Immediate response |
+| Casual conversation | <code>how are you</code>, <code>thanks</code>, <code>who are you</code> | Direct LLM prompt or fast response |
+| Current information | <code>today</code>, <code>latest</code>, <code>news</code>, <code>weather</code>, <code>price</code> | Web search |
+| Encyclopedic question | <code>who is</code>, <code>history</code>, <code>capital of</code> | Wikipedia and web search |
+| Company or uploaded knowledge | <code>policy</code>, <code>PDF</code>, <code>manual</code>, <code>according to</code> | Document search |
+| Ambiguous knowledge question | No strong specific signal | Document search and web search |
+
+Leading greetings and courtesy phrases are removed before routing the substantive question. For example, <code>Hi, what is the return policy?</code> is routed to document search rather than being treated as a greeting.
 
 ## Retrieval architecture
 
@@ -47,7 +61,7 @@ Local document retrieval combines:
 3. Reciprocal Rank Fusion in [app/retriever/hybrid.py](app/retriever/hybrid.py).
 4. Optional FlashRank reranking.
 
-Qdrant runs locally using the persistent [qdrant_data/](qdrant_data/) directory, or remotely through 'QDRANT_URL' and 'QDRANT_API_KEY'.
+Qdrant runs locally using the persistent [qdrant_data/](qdrant_data/) directory, or remotely through <code>QDRANT_URL</code> and <code>QDRANT_API_KEY</code>.
 
 ## Project structure
 
@@ -91,7 +105,7 @@ deploy/            GCP deployment scripts and guide
 
 ## Configuration
 
-Create a '.env' file in the repository root. A minimal configuration is:
+Create a <code>.env</code> file in the repository root. A minimal configuration is:
 
 ~~~env
 GOOGLE_API_KEY=your_gemini_key
@@ -119,7 +133,7 @@ LOG_LEVEL=INFO
 
 Optional integrations include LangSmith tracing, Google Cloud Speech-to-Text, and Google Cloud Model Armor. See [app/core/config.py](app/core/config.py) for all settings.
 
-'DEBUG' must be a boolean such as 'true' or 'false'; values such as 'release' are invalid for the current Pydantic settings model.
+<code>DEBUG</code> must be a boolean such as <code>true</code> or <code>false</code>; values such as <code>release</code> are invalid for the current Pydantic settings model.
 
 ## Run locally
 
@@ -132,7 +146,7 @@ pip install -r requirements.txt
 python -m uvicorn app.main:app --reload --port 8000
 ~~~
 
-The backend runs at 'http://localhost:8000'; Swagger UI is at 'http://localhost:8000/docs'.
+The backend runs at <code>http://localhost:8000</code>; Swagger UI is at <code>http://localhost:8000/docs</code>.
 
 ### Frontend
 
@@ -142,7 +156,7 @@ npm install
 npm run dev
 ~~~
 
-The Vite development server normally runs at 'http://localhost:5173'.
+The Vite development server normally runs at <code>http://localhost:5173</code>.
 
 ### Docker Compose
 
@@ -172,12 +186,14 @@ The sample documents are in [data/](data/). The indexer uses deterministic point
 
 ## API endpoints
 
-- 'POST /api/v1/chat/stream' — SSE stream containing progress, tokens, metadata, citations, and completion events.
-- 'GET /api/v1/health' — health endpoint; readiness routes are also available under this API group.
-- 'POST /api/v1/voice/transcribe' — optional speech-to-text integration.
-- '/api/v1/eval/*' — evaluation endpoints when configured.
+- <code>POST /api/v1/chat/stream</code> — SSE stream containing progress, tokens, metadata, citations, metrics, and completion events.
+- <code>GET /api/v1/health</code> — health endpoint.
+- <code>GET /api/v1/health/live</code> — liveness probe.
+- <code>GET /api/v1/health/ready</code> — readiness probe.
+- <code>POST /api/v1/voice/transcribe</code> — optional speech-to-text integration.
+- <code>GET /api/v1/eval/metrics</code> — latest evaluation report and samples.
 
-Request and response schemas are defined in [app/schemas/chat.py](app/schemas/chat.py). Use '/docs' for the live OpenAPI contract.
+Request and response schemas are defined in [app/schemas/chat.py](app/schemas/chat.py). Use <code>/docs</code> for the live OpenAPI contract.
 
 ## Testing and evaluation
 
@@ -221,10 +237,11 @@ The repository includes:
 - [deploy/deploy-gcp.ps1](deploy/deploy-gcp.ps1) and [deploy/deploy-gcp.sh](deploy/deploy-gcp.sh) for Cloud Run deployment.
 - [deploy/GCP_DEPLOYMENT.md](deploy/GCP_DEPLOYMENT.md) for deployment instructions.
 
-For production, provide provider credentials and Qdrant settings through secret management rather than committing them to '.env' or source control.
+For production, provide provider credentials and Qdrant settings through secret management rather than committing them to <code>.env</code> or source control.
 
 ## Development notes
 
 - External search tools can fail independently; the graph continues with successful retrieval results.
 - The frontend stores conversation history locally and sends it to the stateless backend when needed.
 - Provider names, model defaults, retrieval settings, and feature flags are controlled by [app/core/config.py](app/core/config.py).
+- The current router is heuristic-based; ambiguous cases should be monitored and improved using evaluation data.
