@@ -15,7 +15,52 @@ The platform is designed around a practical hybrid architecture: deterministic r
 
 ## Current architecture
 
-![Current LangGraph architecture](architecture-diagram-dark.svg)
+```mermaid
+flowchart TD
+    U[User Query] --> A[Model Armor: Input Sanitization]
+    A --> C{Context Required?}
+
+    C -->|Self-Contained| R[Zero-LLM Heuristic Intent Router]
+    C -->|Needs Context| W[LLM Context Rewrite]
+    W --> R
+
+    R -->|Greeting / Farewell| D[Direct / Instant Reply]
+    R -->|Casual| L[Direct LLM Prompt]
+    R -->|Knowledge Search| P
+
+    subgraph P[Parallel Tool Execution]
+        direction TB
+        X[Parallel Tool Dispatch<br/>asyncio.gather]
+        X --> DS[Document Hybrid Search<br/>Qdrant + BM25 + FlashRank]
+        X --> WS[Web Search<br/>Tavily / DuckDuckGo]
+        X --> WK[Wikipedia Search]
+    end
+
+    DS --> G[Context Aggregator<br/>+ Fault Handler]
+    WS --> G
+    WK --> G
+    G --> S[Synthesis Prompt<br/>Context + History + Query]
+    S --> F[Single Final Generation<br/>Gemini Primary / Groq Fallback]
+
+    D --> E[FastAPI SSE Stream Engine]
+    L --> E
+    F -->|stream=True| E
+    E --> UI[React Frontend Client]
+
+    classDef runtime fill:#20252b,stroke:#aeb6bf,color:#f4f6f8,stroke-width:1.5px;
+    classDef decision fill:#252525,stroke:#c7cdd4,color:#ffffff,stroke-width:1.5px;
+    classDef retrieval fill:#31343a,stroke:#9aa3ad,color:#ffffff,stroke-width:1.5px;
+    classDef model fill:#3a3027,stroke:#e1a66a,color:#ffffff,stroke-width:1.5px;
+    classDef stream fill:#26332d,stroke:#8bc49b,color:#ffffff,stroke-width:1.5px;
+
+    class U,A,R,D,L,E,UI runtime;
+    class C decision;
+    class P,X,DS,WS,WK,G,S retrieval;
+    class W,F model;
+    class E,UI stream;
+```
+
+The diagram is intentionally expressed as Mermaid so the architecture remains editable, responsive, and renderable in GitHub documentation. A downloadable SVG export is also available at [architecture-diagram-dark.svg](architecture-diagram-dark.svg).
 
 The request lifecycle is:
 
