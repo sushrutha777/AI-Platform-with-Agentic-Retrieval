@@ -69,7 +69,20 @@ class ContextService:
         
         # Check for pronoun references or follow-up indicators to trigger LLM
         pronoun_pattern = r"\b(he|she|it|they|his|her|its|their|this|that|these|those)\b"
-        followup_phrases = ["tell me more", "explain", "give an example", "why", "how so", "elaborate", "continue", "what about", "who", "what", "where", "when", "how", "which"]
+        # Avoid treating every short standalone question (for example,
+        # "What is the return policy?") as a follow-up. Broad question words
+        # belong here only when paired with a contextual reference such as a
+        # pronoun or an explicit continuation phrase.
+        followup_phrases = [
+            "tell me more",
+            "give me an example",
+            "how so",
+            "elaborate",
+            "continue",
+            "what about",
+            "and what",
+            "and how",
+        ]
         
         has_pronoun = bool(re.search(pronoun_pattern, q_lower))
         is_followup = any(q_lower.startswith(phrase) for phrase in followup_phrases)

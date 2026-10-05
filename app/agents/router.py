@@ -15,7 +15,7 @@ class AgentRouter:
 
     @staticmethod
     def route(question: str) -> RoutingDecision:
-        q_lower = question.lower()
+        q_lower = re.sub(r"\s+", " ", question.strip().lower())
 
         # 1. Direct Intents (No retrieval needed)
         greetings = [
@@ -28,13 +28,40 @@ class AgentRouter:
             "thanks", "good job", "who made you", "what can you do", "help"
         ]
 
+        # Keep greeting-only messages on the zero-latency path, but do not
+        # discard a real question after a salutation such as
+        # "Hi, what is the return policy?".
+        greeting_prefix = sorted(greetings, key=len, reverse=True)
+        for greeting in greeting_prefix:
+            if q_lower == greeting:
+                return RoutingDecision(tools=[], needs_llm=True, intent="greeting")
+            match = re.match(rf"^{re.escape(greeting)}(?:[\s,!.?;:-]+)(.+)$", q_lower)
+            if match:
+                remainder = match.group(1).strip(" ,.!?;:-")
+                if remainder and remainder not in {"there", "everyone", "folks"}:
+                    q_lower = remainder
+                else:
+                    return RoutingDecision(tools=[], needs_llm=True, intent="greeting")
+                break
+
+        if any(q_lower == f for f in farewells):
+            return RoutingDecision(tools=[], needs_llm=True, intent="farewell")
+
+        # Courtesy phrases can also precede a substantive question.
+        for courtesy in ["thanks", "thank you"]:
+            if q_lower == courtesy:
+                return RoutingDecision(tools=[], needs_llm=True, intent="casual")
+            if q_lower.startswith(courtesy + " for"):
+                return RoutingDecision(tools=[], needs_llm=True, intent="casual")
+            match = re.match(rf"^{re.escape(courtesy)}(?:[\s,!.?;:-]+)(.+)$", q_lower)
+            if match:
+                q_lower = match.group(1).strip(" ,.!?;:-")
+                break
+
         if any(q_lower == g or q_lower.startswith(g + " ") for g in greetings):
             return RoutingDecision(tools=[], needs_llm=True, intent="greeting")
-        
-        if any(q_lower == f or q_lower.startswith(f + " ") for f in farewells):
-            return RoutingDecision(tools=[], needs_llm=True, intent="farewell")
             
-        if any(c in q_lower for c in casual):
+        if any(q_lower == c or q_lower.startswith(c + " ") for c in casual):
             return RoutingDecision(tools=[], needs_llm=True, intent="casual")
 
         # 2. Knowledge Query Routing

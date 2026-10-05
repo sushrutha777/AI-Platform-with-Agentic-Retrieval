@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from app.core.config import settings
 from app.core.logging import logger
-from app.agents.orchestrator import AgentOrchestrator
+from app.graph import build_graph
 from app.retriever import get_default_dense_retriever, SparseBM25Retriever, HybridRetriever
 from app.reranker.null_reranker import NullReranker
 from app.tools.base import ToolRegistry
@@ -363,7 +363,7 @@ async def run_pipeline_for_dataset(dataset: List[Dict[str, Any]]) -> List[Dict[s
     registry = ToolRegistry()
     retriever_tool = DocumentRetrieverTool(hybrid, reranker)
     registry.register(retriever_tool)
-    orchestrator = AgentOrchestrator(registry)
+    graph = build_graph(registry)
     
     eval_samples = []
     
@@ -386,16 +386,31 @@ async def run_pipeline_for_dataset(dataset: List[Dict[str, Any]]) -> List[Dict[s
                 retrieved_contexts = [doc.page_content for doc in docs] if docs else ["No documents found in index."]
                 retrieval_latency = round(time.time() - start_retrieval, 3)
                 
-                # 2. Generate answer via orchestrator
+                # 2. Generate answer via graph
                 start_gen = time.time()
                 generated_answer = ""
                 intent = "knowledge"
                 
-                async for event in orchestrator.stream_chat(question, session_id=f"ragas_eval_{sample_id}"):
+                queue = asyncio.Queue()
+                
+                async def invoke():
+                    res = await graph.ainvoke(
+                        {"original_query": question, "session_id": f"ragas_eval_{sample_id}"},
+                        config={"configurable": {"stream_queue": queue}}
+                    )
+                    await queue.put(None)
+                    return res
+                
+                task = asyncio.create_task(invoke())
+                while True:
+                    event = await queue.get()
+                    if event is None:
+                        break
                     if event.get("type") == "token":
                         generated_answer += event.get("token", "")
                     elif event.get("type") == "metadata":
                         intent = event.get("intent", intent)
+                await task
                         
                 gen_latency = round(time.time() - start_gen, 3)
                 

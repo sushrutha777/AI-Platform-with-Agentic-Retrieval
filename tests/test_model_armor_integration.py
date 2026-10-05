@@ -4,7 +4,7 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app.agents.orchestrator import AgentOrchestrator
+from app.graph import build_graph
 from app.guardrails.model_armor import GuardrailResult
 from app.schemas.chat import ChatRequest
 from app.services.chat_service import ChatService
@@ -22,12 +22,12 @@ def test_allowed_input_continues_to_existing_orchestrator():
     service = ChatService.__new__(ChatService)
     orchestrator_called = False
 
-    async def existing_pipeline(**kwargs):
+    async def fake_ainvoke(state, config):
         nonlocal orchestrator_called
         orchestrator_called = True
-        yield {"type": "done", "full_answer": "ok"}
+        return {"answer": "ok", "retrieved_docs": [], "source_type": "direct"}
 
-    service.orchestrator = SimpleNamespace(stream_chat=existing_pipeline)
+    service.graph = SimpleNamespace(ainvoke=fake_ainvoke)
     armor = MagicMock()
     armor.sanitize_user_prompt.return_value = GuardrailResult(
         allowed=True,
@@ -44,7 +44,7 @@ def test_allowed_input_continues_to_existing_orchestrator():
 
 def test_blocked_input_stops_rag_before_orchestrator():
     service = ChatService.__new__(ChatService)
-    service.orchestrator = MagicMock()
+    service.graph = MagicMock()
     armor = MagicMock()
     armor.sanitize_user_prompt.return_value = GuardrailResult(
         allowed=False,
@@ -60,7 +60,7 @@ def test_blocked_input_stops_rag_before_orchestrator():
             )
         )
 
-    service.orchestrator.stream_chat.assert_not_called()
+    service.graph.ainvoke.assert_not_called()
     serialized = str(events)
     assert "system prompt" not in serialized
     assert any('"type": "done"' in event for event in events)
@@ -71,33 +71,47 @@ async def _fake_model_stream(*args, **kwargs):
     yield "Token 2"
 
 
-def test_orchestrator_streams_tokens_directly_without_output_guardrail():
+def test_graph_streams_tokens_directly_without_output_guardrail():
     """Verify LLM tokens stream progressively without output guardrail buffering."""
-    orchestrator = AgentOrchestrator(ToolRegistry())
+    graph = build_graph(ToolRegistry())
 
-    # Ensure output guardrail does not exist on orchestrator module
-    import app.agents.orchestrator as orch_module
-    assert not hasattr(orch_module, "guardrail")
+    # Ensure output guardrail does not exist on graph nodes module
+    import app.graph.nodes as nodes_module
+    assert not hasattr(nodes_module, "guardrail")
 
     async def rewrite_query(*args, **kwargs):
         return "What is the return policy?"
 
     with (
-        patch("app.agents.orchestrator.gateway.stream", new=_fake_model_stream),
-        patch("app.agents.orchestrator.context_service.rewrite_query", new=rewrite_query),
+        patch("app.graph.nodes.gateway.stream", new=_fake_model_stream),
+        patch("app.graph.nodes.context_service.rewrite_query", new=rewrite_query),
         patch(
-            "app.agents.orchestrator.context_service.format_history_text",
+            "app.graph.nodes.context_service.format_history_text",
             return_value="No prior conversation.",
         ),
     ):
-        events = _run(
-            orchestrator.stream_chat(
-                "What is the return policy?",
-                session_id="model-armor-test",
-            )
-        )
+        async def _run_graph():
+            queue = asyncio.Queue()
+            
+            async def invoke():
+                result = await graph.ainvoke(
+                    {"original_query": "What is the return policy?", "session_id": "model-armor-test"},
+                    config={"configurable": {"stream_queue": queue}}
+                )
+                await queue.put(None)
+                return result
+            
+            task = asyncio.create_task(invoke())
+            events = []
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                events.append(event)
+            await task
+            return events
+        
+        events = asyncio.run(_run_graph())
 
     tokens = [event["token"] for event in events if event.get("type") == "token"]
     assert tokens == ["Token 1 ", "Token 2"]
-    assert events[-1]["type"] == "done"
-    assert events[-1]["full_answer"] == "Token 1 Token 2"

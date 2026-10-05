@@ -6,7 +6,7 @@ from typing import List, Dict
 
 # Ensure project root is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from app.agents.orchestrator import AgentOrchestrator
+from app.graph import build_graph
 from app.retriever import get_default_dense_retriever, SparseBM25Retriever, HybridRetriever
 from app.reranker.null_reranker import NullReranker
 from app.tools.base import ToolRegistry
@@ -29,7 +29,7 @@ async def run_eval():
     registry = ToolRegistry()
     registry.register(DocumentRetrieverTool(hybrid, reranker))
     
-    orchestrator = AgentOrchestrator(registry)
+    graph = build_graph(registry)
     
     for idx, tc in enumerate(TEST_CASES):
         print(f"\n--- Test Case {idx+1} ---")
@@ -40,11 +40,26 @@ async def run_eval():
         final_answer = ""
         intent = "unknown"
         
-        async for event in orchestrator.stream_chat(tc["query"], session_id=f"eval_sess_{idx}"):
-            if event["type"] == "metadata":
+        queue = asyncio.Queue()
+        
+        async def invoke():
+            result = await graph.ainvoke(
+                {"original_query": tc["query"], "session_id": f"eval_sess_{idx}"},
+                config={"configurable": {"stream_queue": queue}}
+            )
+            await queue.put(None)
+            return result
+        
+        task = asyncio.create_task(invoke())
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+            if event.get("type") == "metadata":
                 intent = event.get("intent", "unknown")
-            elif event["type"] == "token":
-                final_answer += event["token"]
+            elif event.get("type") == "token":
+                final_answer += event.get("token", "")
+        await task
                 
         latency = round(time.time() - start_time, 2)
         

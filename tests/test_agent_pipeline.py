@@ -1,9 +1,9 @@
-"""Automated Unit and Integration Tests for Agentic Orchestrator and Evaluation Pipeline."""
+"""Automated Unit and Integration Tests for LangGraph Pipeline and Evaluation."""
 
 import pytest
 import asyncio
 from langchain_core.documents import Document
-from app.agents.orchestrator import AgentOrchestrator
+from app.graph import build_graph
 from app.agents.router import AgentRouter
 from app.tools.base import ToolRegistry
 from app.tools.retriever_tool import DocumentRetrieverTool
@@ -23,7 +23,7 @@ class DummyDenseRetriever(BaseRetriever):
 
 
 @pytest.fixture
-def agent_orchestrator():
+def compiled_graph():
     sparse_docs = [
         Document(page_content="Electronics can be returned within 30 days of purchase with original receipt."),
         Document(page_content="Standard shipping takes 3-5 business days across the country."),
@@ -36,7 +36,7 @@ def agent_orchestrator():
     registry = ToolRegistry()
     retriever_tool = DocumentRetrieverTool(hybrid, reranker)
     registry.register(retriever_tool)
-    return AgentOrchestrator(registry)
+    return build_graph(registry)
 
 
 def test_golden_dataset_structure():
@@ -109,12 +109,27 @@ def test_agent_routing_categories():
     assert "web_search" in r3.tools
 
 
-def test_orchestrator_retrieval_flow(agent_orchestrator):
-    """Verify orchestrator retrieves documents and streams tokens."""
+def test_graph_retrieval_flow(compiled_graph):
+    """Verify LangGraph retrieves documents and streams tokens."""
     async def _run():
+        queue = asyncio.Queue()
         events = []
-        async for ev in agent_orchestrator.stream_chat("What is the return policy?", session_id="pytest_sess_1"):
-            events.append(ev)
+
+        async def invoke():
+            result = await compiled_graph.ainvoke(
+                {"original_query": "What is the return policy?", "session_id": "pytest_sess_1"},
+                config={"configurable": {"stream_queue": queue}}
+            )
+            await queue.put(None)
+            return result
+
+        task = asyncio.create_task(invoke())
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+            events.append(event)
+        await task
 
         event_types = [e["type"] for e in events]
         assert "step" in event_types or "token" in event_types or "metadata" in event_types

@@ -74,5 +74,8 @@ class StreamDoneEvent(BaseModel):
     tool_used: Optional[str] = None
     source_type: Optional[str] = None
     latency_seconds: float
+    total_latency_seconds: Optional[float] = None
+    ttft_seconds: Optional[float] = None
+    generation_latency_seconds: Optional[float] = None
     message_id: Optional[str] = None
     conversation_id: Optional[str] = None

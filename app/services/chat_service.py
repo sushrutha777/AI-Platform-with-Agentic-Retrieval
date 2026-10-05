@@ -3,9 +3,10 @@
 import time
 import json
 import asyncio
+from contextlib import suppress
 from typing import AsyncGenerator
 from app.schemas.chat import ChatRequest
-from app.agents.orchestrator import AgentOrchestrator
+from app.graph import build_graph
 from app.tools.base import ToolRegistry
 from app.tools.retriever_tool import DocumentRetrieverTool
 from app.tools.wikipedia_tool import WikipediaSearchTool
@@ -30,7 +31,7 @@ INPUT_SCAN_ERROR_MESSAGE = (
 
 
 class ChatService:
-    """Orchestrates the new AgentOrchestrator pipeline."""
+    """Orchestrates the LangGraph pipeline."""
 
     def __init__(
         self,
@@ -55,8 +56,8 @@ class ChatService:
         self.tool_registry.register(WikipediaSearchTool())
         self.tool_registry.register(WebSearchTool())
 
-        # Initialize new orchestrator
-        self.orchestrator = AgentOrchestrator(self.tool_registry)
+        # Initialize LangGraph
+        self.graph = build_graph(self.tool_registry)
 
     async def stream_chat(
         self,
@@ -98,14 +99,74 @@ class ChatService:
             context_service.restore_session(session_id, request.chat_history)
 
         try:
-            async for event in self.orchestrator.stream_chat(
-                question=request.question,
-                session_id=session_id,
-            ):
-                event_type = event.get("type", "step")
-                
-                # Yield SSE chunk
-                yield f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
+            stream_queue = asyncio.Queue()
+            
+            state = {
+                "original_query": request.question,
+                "session_id": session_id
+            }
+
+            async def run_graph():
+                try:
+                    final_state = await self.graph.ainvoke(
+                        state, 
+                        config={
+                            "run_name": "agentic_rag_request",
+                            "tags": ["agentic-rag", "langgraph", "sse"],
+                            "metadata": {
+                                "conversation_id": session_id,
+                                "transport": "sse",
+                            },
+                            "configurable": {"stream_queue": stream_queue},
+                        }
+                    )
+                    
+                    # Compute latency
+                    latency_seconds = round(time.time() - start_time, 2)
+                    
+                    # Compute metadata for done event
+                    used_tools = "none"
+                    if final_state.get("retrieved_docs"):
+                        used_tools = ", ".join([r.tool_name for r in final_state.get("retrieved_docs", [])])
+                        
+                    source_type = final_state.get("source_type", "direct")
+                    
+                    await stream_queue.put({
+                        "type": "done",
+                        "full_answer": final_state.get("answer", ""),
+                        "tool_used": used_tools,
+                        "source_type": source_type,
+                        "latency_seconds": latency_seconds,
+                        "total_latency_seconds": latency_seconds,
+                        "ttft_seconds": final_state.get("ttft_seconds"),
+                        "generation_latency_seconds": final_state.get("generation_latency_seconds"),
+                    })
+                except asyncio.CancelledError:
+                    logger.info("Chat graph task cancelled after client disconnect.")
+                    raise
+                except Exception as e:
+                    logger.error(f"Graph execution failed: {e}", exc_info=True)
+                    await stream_queue.put({"type": "error", "error": str(e)})
+                finally:
+                    await stream_queue.put(None) # EOF sentinel
+
+            # Start graph in background
+            graph_task = asyncio.create_task(run_graph())
+
+            # Consume the queue and yield SSE events
+            try:
+                while True:
+                    event = await stream_queue.get()
+                    if event is None:
+                        break
+
+                    event_type = event.get("type", "step")
+                    yield f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
+            finally:
+                if not graph_task.done():
+                    graph_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await graph_task
 
         except Exception as e:
             logger.error(f"Error in stream_chat: {e}", exc_info=True)

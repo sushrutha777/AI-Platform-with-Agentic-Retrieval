@@ -12,6 +12,7 @@ langchain>=0.2.14
 langchain-core>=0.2.33
 langchain-community>=0.2.12
 langchain-google-genai>=1.0.6
+langgraph>=0.2.0
 litellm>=1.40.0
 google-cloud-speech>=2.26.0
 google-cloud-modelarmor>=0.7.1
