@@ -86,6 +86,28 @@ def test_router_keeps_substantive_query_after_greeting_or_courtesy():
     assert greeting_only.intent == "greeting"
 
 
+def test_common_casual_questions_work_without_llm_generation():
+    async def run(question):
+        graph = build_graph(ToolRegistry())
+        queue = asyncio.Queue()
+
+        async def unexpected_generation(*args, **kwargs):
+            raise AssertionError("known casual response should not call the LLM")
+            yield "unreachable"
+
+        with patch("app.graph.nodes.gateway.stream", new=unexpected_generation):
+            result = await graph.ainvoke(
+                {"original_query": question, "session_id": f"casual-{question}"},
+                config={"configurable": {"stream_queue": queue}},
+            )
+        return result
+
+    how_are_you = asyncio.run(run("how are you"))
+    who_are_you = asyncio.run(run("who are you"))
+    assert "doing well" in how_are_you["answer"]
+    assert "AI assistant" in who_are_you["answer"]
+
+
 def test_normal_query_has_one_final_generation_call():
     async def fake_stream(messages, **kwargs):
         yield "answer"
