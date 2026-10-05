@@ -1,7 +1,6 @@
 """LangGraph node definitions."""
 
 import asyncio
-import re
 import time
 from typing import Dict, Any, List
 from langchain_core.runnables import RunnableConfig
@@ -21,29 +20,6 @@ class GraphNodes:
     def __init__(self, tool_registry: ToolRegistry):
         self.tool_registry = tool_registry
         self.router = AgentRouter()
-
-    @staticmethod
-    def _casual_fast_reply(question: str) -> str | None:
-        """Return a local response for common casual intents."""
-        normalized = re.sub(r"\s+", " ", question.strip().lower())
-        normalized = re.sub(
-            r"^(?:hi|hello|hey|good morning|good afternoon|good evening)"
-            r"(?:[\s,!.?;:-]+)(.+)$",
-            r"\1",
-            normalized,
-        ).strip(" .!?;:-")
-
-        responses = {
-            "how are you": "I'm doing well, thank you! How can I help you today?",
-            "who are you": "I'm an AI assistant for answering questions and finding information from your available sources.",
-            "what are you": "I'm an AI assistant for answering questions and finding information from your available sources.",
-            "what can you do": "I can answer questions, search your documents, use web sources, and provide cited responses.",
-            "help": "I can answer questions, search your documents, use web sources, and provide cited responses.",
-            "thank you": "You're welcome!",
-            "thanks": "You're welcome!",
-            "good job": "Thank you! I'm happy to help.",
-        }
-        return responses.get(normalized)
 
     async def context_resolver(self, state: AgentState, config: RunnableConfig) -> Dict[str, Any]:
         """Node: Resolves context and rewrites query if needed."""
@@ -150,20 +126,6 @@ class GraphNodes:
             return {"answer": full_answer, "ttft_seconds": 0.0, "generation_latency_seconds": 0.0}
 
         else:
-            # Common conversational intents remain usable when an LLM
-            # provider is not configured. More open-ended casual questions
-            # continue to the normal direct LLM path below.
-            if intent == "casual":
-                casual_answer = self._casual_fast_reply(rewritten_query)
-                if casual_answer:
-                    full_answer = casual_answer
-                    if queue:
-                        await queue.put({"type": "step", "label": "Preparing response..."})
-                        await queue.put({"type": "token", "token": full_answer})
-                    context_service.add_turn(session_id, "user", state["original_query"])
-                    context_service.add_turn(session_id, "assistant", full_answer)
-                    return {"answer": full_answer, "ttft_seconds": 0.0, "generation_latency_seconds": 0.0}
-
             if queue:
                 await queue.put({"type": "step", "label": "Synthesizing answer..."})
                 

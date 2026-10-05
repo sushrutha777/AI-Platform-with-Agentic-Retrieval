@@ -86,26 +86,25 @@ def test_router_keeps_substantive_query_after_greeting_or_courtesy():
     assert greeting_only.intent == "greeting"
 
 
-def test_common_casual_questions_work_without_llm_generation():
-    async def run(question):
+def test_casual_questions_use_direct_llm_prompt():
+    async def fake_stream(messages, **kwargs):
+        assert "how are you" in messages[0]["content"].lower()
+        yield "LLM casual response"
+
+    async def run():
         graph = build_graph(ToolRegistry())
         queue = asyncio.Queue()
-
-        async def unexpected_generation(*args, **kwargs):
-            raise AssertionError("known casual response should not call the LLM")
-            yield "unreachable"
-
-        with patch("app.graph.nodes.gateway.stream", new=unexpected_generation):
+        stream = MagicMock(side_effect=fake_stream)
+        with patch("app.graph.nodes.gateway.stream", new=stream):
             result = await graph.ainvoke(
-                {"original_query": question, "session_id": f"casual-{question}"},
+                {"original_query": "how are you", "session_id": "casual-llm"},
                 config={"configurable": {"stream_queue": queue}},
             )
-        return result
+        return result, stream
 
-    how_are_you = asyncio.run(run("how are you"))
-    who_are_you = asyncio.run(run("who are you"))
-    assert "doing well" in how_are_you["answer"]
-    assert "AI assistant" in who_are_you["answer"]
+    result, stream = asyncio.run(run())
+    assert result["answer"] == "LLM casual response"
+    assert stream.call_count == 1
 
 
 def test_normal_query_has_one_final_generation_call():
