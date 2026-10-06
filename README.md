@@ -17,7 +17,7 @@ The platform is designed around a practical hybrid architecture: deterministic r
 
 ```mermaid
 flowchart TD
-    U[User Query] --> A[Model Armor: Input Sanitization]
+    U[User Query] --> A[Model Armor: Input Sanitization<br/>when enabled]
     A --> C{Context Required?}
 
     C -->|Self-Contained| R[Zero-LLM Heuristic Intent Router]
@@ -60,7 +60,7 @@ flowchart TD
     class E,UI stream;
 ```
 
-The diagram is intentionally expressed as Mermaid so the architecture remains editable, responsive, and renderable in GitHub documentation. A downloadable SVG export is also available at [architecture-diagram-dark.svg](architecture-diagram-dark.svg).
+The diagram is intentionally expressed as Mermaid so the architecture remains editable, responsive, and renderable in GitHub documentation.
 
 The request lifecycle is:
 
@@ -89,7 +89,7 @@ The router is intentionally deterministic for low latency and predictable tool s
 | Query category | Typical signals | Selected path |
 | --- | --- | --- |
 | Greeting or farewell | <code>hello</code>, <code>hi</code>, <code>goodbye</code> | Immediate response |
-| Casual conversation | <code>how are you</code>, <code>thanks</code>, <code>who are you</code> | Direct LLM prompt or fast response |
+| Casual conversation | <code>how are you</code>, <code>thanks</code>, <code>who are you</code> | Direct LLM prompt |
 | Current information | <code>today</code>, <code>latest</code>, <code>news</code>, <code>weather</code>, <code>price</code> | Web search |
 | Encyclopedic question | <code>who is</code>, <code>history</code>, <code>capital of</code> | Wikipedia and web search |
 | Company or uploaded knowledge | <code>policy</code>, <code>PDF</code>, <code>manual</code>, <code>according to</code> | Document search |
@@ -287,6 +287,6 @@ For production, provide provider credentials and Qdrant settings through secret 
 ## Development notes
 
 - External search tools can fail independently; the graph continues with successful retrieval results.
-- The frontend stores conversation history locally and sends it to the stateless backend when needed.
+- The frontend stores conversation history locally and can rehydrate the backend session when needed; the backend also keeps process-local session memory.
 - Provider names, model defaults, retrieval settings, and feature flags are controlled by [app/core/config.py](app/core/config.py).
 - The current router is heuristic-based; ambiguous cases should be monitored and improved using evaluation data.
