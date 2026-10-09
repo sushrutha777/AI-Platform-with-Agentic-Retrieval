@@ -97,6 +97,13 @@ The router is intentionally deterministic for low latency and predictable tool s
 
 Leading greetings and courtesy phrases are removed before routing the substantive question. For example, <code>Hi, what is the return policy?</code> is routed to document search rather than being treated as a greeting.
 
+## Session Memory and Context Management
+
+The platform maintains conversational state using an in-memory **6-turn sliding window**. This context window is utilized in two primary ways:
+
+1. **Contextual Query Rewriting:** When a follow-up query contains pronouns, continuation phrases, or is highly abbreviated ($\le 4$ words), the system leverages the recent conversation history to generate a fully contextualized, standalone search query via the LLM. Common conversational tokens (e.g., greetings or acknowledgments) are heuristically bypassed to minimize latency.
+2. **Response Synthesis:** The rolling conversation history is injected into the final generation prompt, ensuring the model maintains context and provides coherent, context-aware responses.
+
 ## Retrieval architecture
 
 Local document retrieval combines:

@@ -75,6 +75,14 @@ class BackendTests(unittest.TestCase):
         rewritten = asyncio.run(cs.rewrite_query(session_id, "How does it work?"))
         self.assertIsInstance(rewritten, str)
 
+        # Test terse follow-up (<= 4 words like "founder?")
+        rewritten_terse = asyncio.run(cs.rewrite_query(session_id, "applications?"))
+        self.assertIsInstance(rewritten_terse, str)
+
+        # Test pure courtesy skipped
+        skipped_thanks = asyncio.run(cs.rewrite_query(session_id, "thanks"))
+        self.assertEqual(skipped_thanks, "thanks")
+
         # Test context window
         window = cs.get_context_window(session_id)
         self.assertEqual(len(window), 2)

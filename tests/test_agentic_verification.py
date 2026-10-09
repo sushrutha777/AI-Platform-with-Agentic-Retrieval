@@ -194,9 +194,10 @@ def test_chat_graph_invocation_has_langsmith_trace_context():
             return {"answer": "ok", "retrieved_docs": [], "source_type": "direct"}
 
         service.graph = SimpleNamespace(ainvoke=fake_ainvoke)
-        [event async for event in service.stream_chat(
+        async for _ in service.stream_chat(
             ChatRequest(question="hello", conversation_id="trace-test")
-        )]
+        ):
+            pass
         return captured
 
     config = asyncio.run(run())
@@ -213,7 +214,9 @@ def test_queue_gets_terminal_event_when_graph_fails():
             raise RuntimeError("generation failed")
 
         service.graph = SimpleNamespace(ainvoke=failing_ainvoke)
-        events = [event async for event in service.stream_chat(ChatRequest(question="hello"))]
+        events = []
+        async for event in service.stream_chat(ChatRequest(question="hello")):
+            events.append(event)
         return events
 
     events = asyncio.run(run())

@@ -67,12 +67,20 @@ class ContextService:
         q_clean = question.strip()
         q_lower = q_clean.lower()
         
+        # Skip rewriting for pure greetings or courtesy acknowledgments
+        pure_conversational = {
+            "hi", "hello", "hey", "good morning", "good evening", 
+            "good afternoon", "greetings", "howdy", "hola", "yo",
+            "bye", "goodbye", "see you", "cya", "farewell", "take care",
+            "thanks", "thank you", "ok", "okay", "cool", "great", "nice",
+            "yes", "no", "yep", "nope", "sure"
+        }
+        clean_stripped = q_lower.strip("?!., ")
+        if clean_stripped in pure_conversational:
+            return question
+
         # Check for pronoun references or follow-up indicators to trigger LLM
-        pronoun_pattern = r"\b(he|she|it|they|his|her|its|their|this|that|these|those)\b"
-        # Avoid treating every short standalone question (for example,
-        # "What is the return policy?") as a follow-up. Broad question words
-        # belong here only when paired with a contextual reference such as a
-        # pronoun or an explicit continuation phrase.
+        pronoun_pattern = r"\b(he|she|it|they|his|her|its|their|this|that|these|those|them|him)\b"
         followup_phrases = [
             "tell me more",
             "give me an example",
@@ -80,15 +88,20 @@ class ContextService:
             "elaborate",
             "continue",
             "what about",
+            "how about",
             "and what",
             "and how",
+            "and who",
+            "and where",
+            "and why",
         ]
         
         has_pronoun = bool(re.search(pronoun_pattern, q_lower))
         is_followup = any(q_lower.startswith(phrase) for phrase in followup_phrases)
-        is_short = len(q_clean.split()) <= 8
+        num_words = len(q_clean.split())
+        is_terse_followup = num_words <= 4
         
-        if not (has_pronoun or (is_followup and is_short)):
+        if not (has_pronoun or is_followup or is_terse_followup):
             return question
             
         history_text = self.format_history_text(session_id, max_turns=6)
