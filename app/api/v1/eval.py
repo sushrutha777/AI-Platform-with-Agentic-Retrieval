@@ -3,7 +3,7 @@
 import os
 import json
 from pathlib import Path
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
 from app.core.config import BASE_DIR
 from app.core.logging import logger
 

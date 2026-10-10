@@ -129,10 +129,7 @@ Standalone Query:"""
             
         return question
 
-    def clear_session(self, session_id: str) -> None:
-        """Clear a session from memory."""
-        if session_id in self.sessions:
-            del self.sessions[session_id]
+
 
     def clear_expired_sessions(self) -> None:
         """Remove sessions that have exceeded the inactivity timeout."""

@@ -1,7 +1,7 @@
 """Rule-based, zero-LLM tool router."""
 
 import re
-from typing import List, Tuple
+from typing import List
 from pydantic import BaseModel
 from app.core.logging import logger
 

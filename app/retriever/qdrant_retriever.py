@@ -7,7 +7,7 @@ from langchain_qdrant import QdrantVectorStore
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_core.documents import Document
 from qdrant_client import QdrantClient
-from qdrant_client.http import models as rest_models
+
 from app.core.config import settings
 from app.core.logging import logger
 from app.retriever.base import BaseRetriever

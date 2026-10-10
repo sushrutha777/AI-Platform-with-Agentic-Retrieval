@@ -39,6 +39,4 @@ class ToolRegistry:
         """Get tool by name."""
         return self._tools.get(name)
 
-    def list_tools(self) -> List[BaseAgentTool]:
-        """List all registered tools."""
-        return list(self._tools.values())
+

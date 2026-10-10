@@ -2,7 +2,7 @@
 
 import os
 from typing import List
-from langchain_community.document_loaders import TextLoader
+
 from ingestion_platform.connectors.base import BaseConnector
 from ingestion_platform.core.models import StandardDocument
 from app.core.logging import logger

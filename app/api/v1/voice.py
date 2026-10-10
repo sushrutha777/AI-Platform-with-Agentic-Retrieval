@@ -2,7 +2,7 @@
 
 import os
 from fastapi import APIRouter, File, UploadFile, HTTPException
-from fastapi.responses import JSONResponse
+
 from app.speech.service import speech_service
 from app.core.logging import logger
 from app.core.config import settings
